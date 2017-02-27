@@ -176,7 +176,7 @@ def sliding_window(binary_warped, last_n_left_fits, last_n_right_fits, med_left_
     except TypeError:
         right_fit = (0, 0, rightx_base)
 
-
+    
     ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
 
     # Calculate the curvature
@@ -238,11 +238,17 @@ def sliding_window(binary_warped, last_n_left_fits, last_n_right_fits, med_left_
         left_fitx = med_left_fit[0]*ploty**2 + med_left_fit[1]*ploty + med_left_fit[2]
         right_fitx = med_right_fit[0]*ploty**2 + med_right_fit[1]*ploty + med_right_fit[2]
     left_lane = np.stack((left_fitx, ploty), axis=-1)
-    print(left_lane)
     right_lane = np.stack((right_fitx, ploty), axis=-1)
-    return left_lane, right_lane, left_fit, right_fit, left_curverad, right_curverad
 
-def draw_road(img, Minv, left_lane, right_lane, left_curv, right_curv):
+    # determine offset from center
+    left_edge_x = left_lane[-1][0]
+    right_edge_x = right_lane[-1][0]
+    lane_center = (left_edge_x + right_edge_x) / 2
+    center_offset = (img.shape[1]/2 - lane_center) * xm_per_pix
+
+    return left_lane, right_lane, left_fit, right_fit, left_curverad, right_curverad, center_offset
+
+def draw_road(img, Minv, left_lane, right_lane, left_curv, right_curvi, center_offset):
     overlay = img.copy()
 
     warped_left = cv2.perspectiveTransform(np.array([left_lane]), Minv)[0].astype(int)
@@ -255,7 +261,7 @@ def draw_road(img, Minv, left_lane, right_lane, left_curv, right_curv):
 
     cv2.putText(overlay, "Left Curvature Radius: " + str(left_curv),(50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 2, cv2.LINE_AA)
     cv2.putText(overlay, "Right Curvature Radius: " + str(right_curv),(50, 150), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
-
+    cv2.putText(overlay, "Vehicle Center Offset: " + str(center_offset),(50, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
     # blend overlay and original image
     alpha = 0.34
     cv2.addWeighted(overlay, alpha, img, 1.0 - alpha, 0, img)
@@ -303,7 +309,6 @@ ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.sh
 
 #plt.ion()
 #plt.show()
-
 in_clip = VideoFileClip("project_video.mp4")
 out_frames = []
 frame_count = 0
@@ -345,7 +350,6 @@ for in_frame in in_clip.iter_frames():
     Minv = cv2.getPerspectiveTransform(dst, src)
     #img = cv2.warpPerspective(img, M, (img_width, img_height), flags=cv2.INTER_LINEAR)
     img = cv2.warpPerspective(img, M, (img_width, img_height), flags=cv2.INTER_NEAREST)
-
     #plt.imshow(img)
     #plt.draw()
     #plt.pause(0.001)
@@ -378,7 +382,7 @@ for in_frame in in_clip.iter_frames():
     thresh_max = 100
     sxbinary = np.zeros_like(scaled_sobelx)
     sxbinary[(scaled_sobelx >= thresh_min) & (scaled_sobelx <= thresh_max)] = 1
-
+    
     # fill in these
     combined_binary = np.zeros_like(hls_binary)
     combined_binary[(hls_binary == 1) | (sxbinary == 1)] = 1
@@ -404,7 +408,7 @@ for in_frame in in_clip.iter_frames():
         #try without the other function first
         #left_lane, right_lane, left_fit, right_fit = search_prev_pos(combined_binary, left_fits_copy, right_fits_copy, med_left_fit, med_right_fit)
     #else:  # use sliding window for first frame 
-    left_lane, right_lane, left_fit, right_fit, left_curv, right_curv = sliding_window(combined_binary, last_n_left_fits, last_n_right_fits, med_left_fit, med_right_fit)
+    left_lane, right_lane, left_fit, right_fit, left_curv, right_curv, center_offset = sliding_window(combined_binary, last_n_left_fits, last_n_right_fits, med_left_fit, med_right_fit)
     if frame_count == frame_start:
         last_n_left_fits = [left_fit] * buf_size
         last_n_right_fits = [right_fit] * buf_size
@@ -414,7 +418,7 @@ for in_frame in in_clip.iter_frames():
         last_n_right_fits.append(right_fit)
         last_n_right_fits.pop(0)
     # draw the road
-    draw_road(orig_img, Minv, left_lane, right_lane, left_curv, right_curv)
+    draw_road(orig_img, Minv, left_lane, right_lane, left_curv, right_curv, center_offset)
 
     #plt.imshow(orig_img) #for testing only
     #plt.show()                            #for testing only
