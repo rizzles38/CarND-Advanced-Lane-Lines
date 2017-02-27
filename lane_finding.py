@@ -5,7 +5,7 @@ import pickle
 import matplotlib.pyplot as plt
 from moviepy.editor import VideoFileClip, ImageSequenceClip
 
-def search_prev_pos(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, med_right_fit):
+def search_prev_pos(binary_warped, last_n_left_fits, last_n_right_fits, med_left_fit, med_right_fit):
     if (len(avg_left_fit) == 0):
         print("left_fit empty")
         return None, None, None, None
@@ -55,13 +55,36 @@ def search_prev_pos(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, me
     # visualize the result
     # Generate x and y values for plotting
     if not outlier_detected:
-        left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-        right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-    else:
-        left_fitx = med_left_fit[0]*ploty**2 + med_left_fit[1]*ploty + med_left_fit[2]
-        right_fitx = med_right_fit[0]*ploty**2 + med_right_fit[1]*ploty + med_right_fit[2]
+        if len(last_n_left_fits) > 0:
+            # calculate average left and right fits over the last n frames
+            first_left_coeff_smooth =  (sum(coefficients[0] for coefficients in last_n_left_fits)+left_fit[0])/ (len(last_n_left_fits)+1)
+            second_left_coeff_smooth = (sum(coefficients[1] for coefficients in last_n_left_fits)+left_fit[1])/ (len(last_n_left_fits)+1) 
+            third_left_coeff_smooth = (sum(coefficients[2] for coefficients in last_n_left_fits)+left_fit[2])/ (len(last_n_left_fits)+1) 
+            smoothed_left_fit = [first_left_coeff_smooth, second_left_coeff_smooth, third_left_coeff_smooth]
+            first_right_coeff_smooth = (sum(coeffs[0] for coeffs in last_n_right_fits)+right_fit[0])/ (len(last_n_right_fits)+1)
+            second_right_coeff_smooth = (sum(coeffs[1] for coeffs in last_n_right_fits)+right_fit[1])/ (len(last_n_right_fits)+1)
+            third_right_coeff_smooth = (sum(coeffs[2] for coeffs in last_n_right_fits)+right_fit[2])/(len(last_n_right_fits)+1)
+            smoothed_right_fit = [first_right_coeff_smooth, second_right_coeff_smooth, third_right_coeff_smooth]
+        else:
+            smoothed_left_fit = left_fit
+            smoothed_right_fit = right_fit
+
+
+        left_fitx = smoothed_left_fit[0]*ploty**2 + smoothed_left_fit[1]*ploty + smoothed_left_fit[2]
+        right_fitx = smoothed_right_fit[0]*ploty**2 + smoothed_right_fit[1]*ploty + smoothed_right_fit[2]
+    else:   
+        first_left_coeff =  (sum(coeffs[0] for coeffs in last_n_left_fits))/ len(last_n_left_fits)
+        second_left_coeff = (sum(coeffs[1] for coeffs in last_n_left_fits))/ (len(last_n_left_fits)) 
+        third_left_coeff = (sum(coeffs[2] for coeffs in last_n_left_fits))/ (len(last_n_left_fits)) 
+        avg_left_fit = [first_left_coeff_avg, second_left_coeff_avg, third_left_coeff_avg]
+        first_right_coeff = (sum(coeffs[0] for coeffs in last_n_right_fits))/ (len(last_n_right_fits))
+        second_right_coeff = (sum(coeffs[1] for coeffs in last_n_right_fits))/ (len(last_n_right_fits))
+        third_right_coeff = (sum(coeffs[2] for coeffs in last_n_right_fits))/(len(last_n_right_fits))
+        avg_right_fit = [first_right_coeff, second_right_coeff, third_right_coeff]
+
+        left_fitx = avg_left_fit[0]*ploty**2 + avg_left_fit[1]*ploty + avg_left_fit[2]
+        right_fitx = avg_right_fit[0]*ploty**2 + avg_right_fit[1]*ploty + avg_right_fit[2]
     left_lane = np.stack((left_fitx, ploty), axis=-1)
-    print(left_lane)
     right_lane = np.stack((right_fitx, ploty), axis=-1)
     return left_lane, right_lane, left_fit, right_fit
  
@@ -76,7 +99,7 @@ def search_prev_pos(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, me
     #return left_lane, right_lane, left_fit, right_fit
  
 
-def sliding_window(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, med_right_fit):
+def sliding_window(binary_warped, last_n_left_fits, last_n_right_fits, med_left_fit, med_right_fit):
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
     histogram = np.sum(binary_warped[int(binary_warped.shape[0]/2):,:], axis=0)
@@ -156,6 +179,21 @@ def sliding_window(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, med
 
     ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
 
+    # Calculate the curvature
+    y_eval = np.max(ploty)
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+
+    # Fit new polynomials to x,y in world space
+    left_fit_cr = np.polyfit(lefty*ym_per_pix, leftx*xm_per_pix, 2)
+    right_fit_cr = np.polyfit(righty*ym_per_pix, rightx*xm_per_pix, 2)
+    # Calculate the new radii of curvature
+    left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
+    right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
+    # Now our radius of curvature is in meters
+    print(left_curverad, 'm', right_curverad, 'm')
+
     #check if our left and right fit coefficients are too far off
     #if too far off, consider them outliers and don't include them - instead use median fit that was passed in
     outlier_detected = False
@@ -178,15 +216,19 @@ def sliding_window(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, med
     if not outlier_detected:
         # average the fits with previous frames
         # there MUST be a better way to do this
-        if (len(avg_left_fit) > 0):
-            first_left_coeff = (left_fit[0] + avg_left_fit[0])/2
-            second_left_coeff = (left_fit[1] + avg_left_fit[1])/2
-            third_left_coeff = (left_fit[2] + avg_left_fit[2])/2 
-            smoothed_left_fit = [first_left_coeff, second_left_coeff, third_left_coeff]
-            first_right_coeff = (right_fit[0] + avg_right_fit[0])/2
-            second_right_coeff = (right_fit[1] + avg_right_fit[1])/2
-            third_right_coeff = (right_fit[2] + avg_right_fit[2])/2
-            smoothed_right_fit = [first_right_coeff, second_right_coeff, third_right_coeff]
+
+        if len(last_n_left_fits) > 0:
+            # calculate average left and right fits over the last n frames
+            first_left_coeff_avg =  (sum(coefficients[0] for coefficients in last_n_left_fits)+left_fit[0])/ (len(last_n_left_fits)+1)
+            second_left_coeff_avg = (sum(coefficients[1] for coefficients in last_n_left_fits)+left_fit[1])/ (len(last_n_left_fits)+1) 
+            third_left_coeff_avg = (sum(coefficients[2] for coefficients in last_n_left_fits)+left_fit[2])/ (len(last_n_left_fits)+1) 
+            smoothed_left_fit = [first_left_coeff_avg, second_left_coeff_avg, third_left_coeff_avg]
+            first_right_coeff_avg = (sum(coeffs[0] for coeffs in last_n_right_fits)+right_fit[0])/ (len(last_n_right_fits)+1)
+            second_right_coeff_avg = (sum(coeffs[1] for coeffs in last_n_right_fits)+right_fit[1])/ (len(last_n_right_fits)+1)
+            third_right_coeff_avg = (sum(coeffs[2] for coeffs in last_n_right_fits)+right_fit[2])/(len(last_n_right_fits)+1)
+            smoothed_right_fit = [first_right_coeff_avg, second_right_coeff_avg, third_right_coeff_avg]
+     
+
         else:  #if we don't have anything to average with yet, use the one we just found
             smoothed_left_fit = left_fit
             smoothed_right_fit = right_fit
@@ -198,9 +240,9 @@ def sliding_window(binary_warped, avg_left_fit, avg_right_fit, med_left_fit, med
     left_lane = np.stack((left_fitx, ploty), axis=-1)
     print(left_lane)
     right_lane = np.stack((right_fitx, ploty), axis=-1)
-    return left_lane, right_lane, left_fit, right_fit
+    return left_lane, right_lane, left_fit, right_fit, left_curverad, right_curverad
 
-def draw_road(img, Minv, left_lane, right_lane):
+def draw_road(img, Minv, left_lane, right_lane, left_curv, right_curv):
     overlay = img.copy()
 
     warped_left = cv2.perspectiveTransform(np.array([left_lane]), Minv)[0].astype(int)
@@ -210,6 +252,9 @@ def draw_road(img, Minv, left_lane, right_lane):
 
     # draw polygon between lane lines
     cv2.fillPoly(overlay, poly, (0, 255, 0, 100))
+
+    cv2.putText(overlay, "Left Curvature Radius: " + str(left_curv),(50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 2, cv2.LINE_AA)
+    cv2.putText(overlay, "Right Curvature Radius: " + str(right_curv),(50, 150), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
 
     # blend overlay and original image
     alpha = 0.34
@@ -355,21 +400,11 @@ for in_frame in in_clip.iter_frames():
     else:
         med_right_fit = None
      #instead of sliding window, just to search based on last 5 frames
-    #if len(last_n_left_fits) > 0:
-        # calculate average left and right fits over the last n frames
-    first_left_coeff_avg =  sum(coefficients[0] for coefficients in last_n_left_fits)/buf_size
-    second_left_coeff_avg = sum(coefficients[1] for coefficients in last_n_left_fits)/buf_size 
-    third_left_coeff_avg = sum(coefficients[2] for coefficients in last_n_left_fits)/buf_size 
-    avg_left_fit = [first_left_coeff_avg, second_left_coeff_avg, third_left_coeff_avg]
-    first_right_coeff_avg = sum(coeffs[0] for coeffs in last_n_right_fits)/buf_size
-    second_right_coeff_avg = sum(coeffs[1] for coeffs in last_n_right_fits)/buf_size
-    third_right_coeff_avg = sum(coeffs[2] for coeffs in last_n_right_fits)/buf_size
-    avg_right_fit = [first_right_coeff_avg, second_right_coeff_avg, third_right_coeff_avg]
 
         #try without the other function first
-        #left_lane, right_lane, left_fit, right_fit = search_prev_pos(combined_binary, avg_left_fit, avg_right_fit, med_left_fit, med_right_fit)
+        #left_lane, right_lane, left_fit, right_fit = search_prev_pos(combined_binary, left_fits_copy, right_fits_copy, med_left_fit, med_right_fit)
     #else:  # use sliding window for first frame 
-    left_lane, right_lane, left_fit, right_fit = sliding_window(combined_binary, avg_left_fit, avg_right_fit, med_left_fit, med_right_fit)
+    left_lane, right_lane, left_fit, right_fit, left_curv, right_curv = sliding_window(combined_binary, last_n_left_fits, last_n_right_fits, med_left_fit, med_right_fit)
     if frame_count == frame_start:
         last_n_left_fits = [left_fit] * buf_size
         last_n_right_fits = [right_fit] * buf_size
@@ -379,7 +414,7 @@ for in_frame in in_clip.iter_frames():
         last_n_right_fits.append(right_fit)
         last_n_right_fits.pop(0)
     # draw the road
-    draw_road(orig_img, Minv, left_lane, right_lane)
+    draw_road(orig_img, Minv, left_lane, right_lane, left_curv, right_curv)
 
     #plt.imshow(orig_img) #for testing only
     #plt.show()                            #for testing only
@@ -387,8 +422,8 @@ for in_frame in in_clip.iter_frames():
     print("Processed frame {}".format(frame_count))
     frame_count += 1
     
-    if frame_count == 1200: # max number of frames to process
-        break
+    #if frame_count == 1200: # max number of frames to process
+        #break
 
 out_clip = ImageSequenceClip(out_frames, fps=in_clip.fps)
 out_clip.write_videofile("output.mp4")
