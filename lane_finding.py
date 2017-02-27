@@ -216,18 +216,18 @@ def draw_road(img, Minv, left_lane, right_lane):
     cv2.addWeighted(overlay, alpha, img, 1.0 - alpha, 0, img)
 
     # draw left lane
-    for i in range(1, len(warped_left)):
-        cv2.line(img,
-                 (warped_left[i - 1][0], warped_left[i - 1][1]),
-                 (warped_left[i][0], warped_left[i][1]),
-                 (255, 0, 0), 3)
+    #for i in range(1, len(warped_left)):
+        #cv2.line(img,
+                 #(warped_left[i - 1][0], warped_left[i - 1][1]),
+                 #(warped_left[i][0], warped_left[i][1]),
+                 #(255, 0, 0), 3)
 
     # draw right lane
-    for i in range(1, len(warped_right)):
-        cv2.line(img,
-                 (warped_right[i - 1][0], warped_right[i - 1][1]),
-                 (warped_right[i][0], warped_right[i][1]),
-                 (0, 0, 255), 3)
+    #for i in range(1, len(warped_right)):
+        #cv2.line(img,
+                 #(warped_right[i - 1][0], warped_right[i - 1][1]),
+                 #(warped_right[i][0], warped_right[i][1]),
+                 #(0, 0, 255), 3)
 
 # calibrate camera
 object_pt = np.zeros((6*9, 3), np.float32)
